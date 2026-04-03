@@ -1,0 +1,72 @@
+// schema.prisma
+generator client {
+    provider =  "prisma-client-js"
+    output   = "./src/generated/prisma"
+}
+
+datasource db {
+    provider = "postgresql"
+}
+
+enum JobStatus {
+    PENDING
+    PROCESSING
+    COMPLETED
+    FAILED
+    DEAD_LETTER
+    CANCELLED
+    STALLED
+}
+
+enum JobPriority {
+    CRITICAL // 0 - processed first
+    HIGH // 1
+    NORMAL //2
+    LOW // 3 - PROCESSED LAST
+}
+
+model Job {
+    id  String  @id @default(uuid()) @db.Uuid
+    idempotencyKey  String? @unique @map("idempotency_key")
+
+    // what to do
+    type    String  // e.g. "email.send", "report.generate"
+    payload Json    // arbitary JSON input for the handler
+
+    // State Machine
+    status  JobStatus   @default(PENDING)
+    priority JobPriority @default(NORMAL)
+    queue   String  @default("default")
+
+    // Retry Tracking
+    attempts    Int @default(0)
+    maxRetries  Int @default(3) @map("max_retries")
+    lastError   String? @map("last_error")
+    errorHistory    Json?   @map("error_history")   
+
+    // Scheduling
+    runAt   DateTime    @default(now()) @map("run_at")
+
+    // Worker Tracking
+    lockedBy    String?@map("locked_by")
+    lockedAt    DateTime?   @map("locked_at")
+
+    // Results
+    result      Json?   
+    progress    Int?    @default(0)
+
+    // Timestamps
+    createdAt   DateTime    @default(now()) @map("created_at")
+    updatedAt   DateTime    @updatedAt  @map("updated_at")
+    startedAt   DateTime?   @map("started_at")
+    completedAt DateTime?   @map("completed_at")
+
+    // Indexes
+    @@index([status, priority, runAt], name: "idx_job_polling")
+    @@index([queue, status], name: "idx_queue_status")
+    @@index([type, status], name: "idx_type_status")
+    @@index([createdAt], name: "idx_created_at")
+    @@index([lockedBy, status], name: "idx_locked_worker")
+
+    @@map("jobs")
+}
